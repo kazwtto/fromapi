@@ -1,0 +1,7 @@
+name = "api"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+JSONKEY = "30e44f71-30f4-4e38-9107-390275114314"
+SECRET_KEY = "HATSUNE01MEMENTO"
