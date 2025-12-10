@@ -5,8 +5,8 @@ export default {
     async fetch(request, env) {
         const url = new URL(request.url);
         if (!apiUrlAdm) {
-            apiUrlGet = env.POSTS_ENDPOINT;
-            apiUrlAdm = env.USERS_ENDPOINT;
+            apiUrlGet = env.USERS_ENDPOINT;
+            apiUrlAdm = env.ADMIN_ENDPOINT;
         }
 
         const corsHeaders = {
@@ -126,7 +126,7 @@ async function removeEmail(email, env) {
 
 function getAdminUsers(env) {
     try {
-        return JSON.parse(env.ADMIN_USERS);
+        return typeof env.ADMIN_USERS === 'string' ? JSON.parse(env.ADMIN_USERS) : env.ADMIN_USERS;
     } catch (_) {
         return [];
     }
