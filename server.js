@@ -19,23 +19,23 @@ export default {
             return new Response(null, { headers: corsHeaders });
         }
 
-        if (url.pathname === "/health" || url.pathname === "/health.html") {
+        if (url.pathname === "/health") {
             return Response.json({ status: "ok" }, { headers: corsHeaders });
         }
 
-        if ((url.pathname === "/webhook/cakto" || url.pathname === "/webhook/cakto.html") && request.method === "POST") {
+        if (url.pathname === "/webhook/cakto" && request.method === "POST") {
             return handleWebhook(request, env, corsHeaders);
         }
 
-        if ((url.pathname === "/cakto/login" || url.pathname === "/cakto/login.html") && request.method === "POST") {
+        if (url.pathname === "/cakto/login" && request.method === "POST") {
             return handleCaktoLogin(request, env, corsHeaders);
         }
         
-        if ((url.pathname === "/admin/login" || url.pathname === "/admin/login.html") && request.method === "POST") {
+        if (url.pathname === "/admin/login" && request.method === "POST") {
             return handleAdminLogin(request, env, corsHeaders);
         }
         
-        if ((url.pathname === "/admin/users" || url.pathname === "/admin/users.html") && request.method === "GET") {
+        if (url.pathname === "/admin/users" && request.method === "GET") {
             const auth = await requireAdmin(request, env);
             
             if (!auth.authorized) {
@@ -49,7 +49,7 @@ export default {
             return Response.json({ users: emails }, { headers: corsHeaders });
         }
 
-        if ((url.pathname === "/verify-token" || url.pathname === "/verify-token.html") && request.method === "POST") {
+        if (url.pathname === "/verify-token" && request.method === "POST") {
             return handleVerifyToken(request, env, corsHeaders);
         }
 
