@@ -1,9 +1,3 @@
 name = "api"
 main = "server.js"
 compatibility_date = "2024-01-01"
-
-[vars]
-JSONKEY = "30e44f71-30f4-4e38-9107-390275114314"
-SECRET_KEY = "HATSUNE01MEMENTO"
-POSTS_ENDPOINT = "https://api.jsonstorage.net/v1/json/087395de-f632-4250-a29b-ad3addce7310/b596b9af-7786-48ab-af9e-1aeb241a6ded"
-USERS_ENDPOINT = "https://api.jsonstorage.net/v1/json/087395de-f632-4250-a29b-ad3addce7310/f5e3a1da-067d-4f27-b54d-7fdcef80c741"
