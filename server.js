@@ -31,14 +31,6 @@ export default {
             return handleCaktoLogin(request, env, corsHeaders);
         }
         
-        if (url.pathname === "/cakto/verify" && request.method === "POST") {
-            return handleCaktoVerify(request, env, corsHeaders);
-        }
-        
-        if (url.pathname === "/cakto/count" && request.method === "GET") {
-            return handleCaktoCount(env, corsHeaders);
-        }
-        
         if (url.pathname === "/admin/login" && request.method === "POST") {
             return handleAdminLogin(request, env, corsHeaders);
         }
@@ -218,60 +210,6 @@ async function handleCaktoLogin(request, env, corsHeaders) {
                 type: 'cakto',
                 expiresIn: 86400
             },
-            { headers: corsHeaders }
-        );
-
-    } catch (error) {
-        return Response.json(
-            { error: "Erro interno" },
-            { status: 500, headers: corsHeaders }
-        );
-    }
-}
-
-// ============================================================================
-// VERIFY CAKTO
-// ============================================================================
-
-async function handleCaktoVerify(request, env, corsHeaders) {
-    try {
-        const body = await request.json();
-        const email = body.email?.toLowerCase()?.trim();
-
-        if (!email || !isValidEmail(email)) {
-            return Response.json(
-                { error: "Email inválido" }, 
-                { status: 400, headers: corsHeaders }
-            );
-        }
-
-        const emails = await getRemoteData();
-        const isBuyer = Array.isArray(emails) && emails.includes(email);
-
-        return Response.json(
-            { authorized: isBuyer },
-            { headers: corsHeaders }
-        );
-
-    } catch (error) {
-        return Response.json(
-            { error: "Erro interno" },
-            { status: 500, headers: corsHeaders }
-        );
-    }
-}
-
-// ============================================================================
-// COUNT CAKTO
-// ============================================================================
-
-async function handleCaktoCount(env, corsHeaders) {
-    try {
-        const emails = await getRemoteData();
-        const count = Array.isArray(emails) ? emails.length : 0;
-
-        return Response.json(
-            { count: count },
             { headers: corsHeaders }
         );
 
