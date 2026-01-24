@@ -31,13 +31,16 @@ export default {
             return Response.json({ users: emails }, { headers: corsHeaders });
         }
 
+        if (url.pathname === "/admin/list" && request.method === "GET") {
+            const auth = await requireAdmin(request, env);
+            if (!auth.authorized) return Response.json({ error: "Não autorizado" }, { status: 401, headers: corsHeaders });
+            const admins = await getAdminData(env);
+            return Response.json({ admins }, { headers: corsHeaders });
+        }
+
         return new Response("Not found", { status: 404, headers: corsHeaders });
     }
 };
-
-// ============================================================================
-// STORAGE
-// ============================================================================
 
 async function requireAdmin(request, env) {
     const authHeader = request.headers.get('Authorization');
@@ -54,6 +57,13 @@ async function requireAdmin(request, env) {
 async function getRemoteData() {
     try {
         const response = await fetch(apiUrlGet);
+        return response.ok ? await response.json() : [];
+    } catch { return []; }
+}
+
+async function getAdminData(env) {
+    try {
+        const response = await fetch(`${apiUrlAdm}?apiKey=${env.JSONKEY}`);
         return response.ok ? await response.json() : [];
     } catch { return []; }
 }
@@ -92,10 +102,6 @@ function getAdminUsers(env) {
     } catch { return []; }
 }
 
-// ============================================================================
-// WEBHOOK
-// ============================================================================
-
 async function handleWebhook(request, env, corsHeaders) {
     try {
         const body = await request.json();
@@ -113,10 +119,6 @@ async function handleWebhook(request, env, corsHeaders) {
         return Response.json({ error: error.message }, { status: 500, headers: corsHeaders });
     }
 }
-
-// ============================================================================
-// LOGIN CAKTO
-// ============================================================================
 
 async function handleCaktoLogin(request, env, corsHeaders) {
     try {
@@ -145,10 +147,6 @@ async function handleCaktoLogin(request, env, corsHeaders) {
     }
 }
 
-// ============================================================================
-// VERIFY CAKTO
-// ============================================================================
-
 async function handleCaktoVerify(request, env, corsHeaders) {
     try {
         const body = await request.json();
@@ -168,10 +166,6 @@ async function handleCaktoVerify(request, env, corsHeaders) {
     }
 }
 
-// ============================================================================
-// COUNT CAKTO
-// ============================================================================
-
 async function handleCaktoCount(env, corsHeaders) {
     try {
         const emails = await getRemoteData();
@@ -180,10 +174,6 @@ async function handleCaktoCount(env, corsHeaders) {
         return Response.json({ error: "Erro interno" }, { status: 500, headers: corsHeaders });
     }
 }
-
-// ============================================================================
-// LOGIN ADMIN
-// ============================================================================
 
 async function handleAdminLogin(request, env, corsHeaders) {
     try {
@@ -214,10 +204,6 @@ async function handleAdminLogin(request, env, corsHeaders) {
     }
 }
 
-// ============================================================================
-// VERIFY TOKEN
-// ============================================================================
-
 async function handleVerifyToken(request, env, corsHeaders) {
     try {
         const body = await request.json();
@@ -234,10 +220,6 @@ async function handleVerifyToken(request, env, corsHeaders) {
         return Response.json({ error: "Erro interno" }, { status: 500, headers: corsHeaders });
     }
 }
-
-// ============================================================================
-// HELPERS
-// ============================================================================
 
 async function sha256(text) {
     const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
