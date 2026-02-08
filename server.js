@@ -7,43 +7,51 @@ export default {
     async fetch(request, env) {
         const url = new URL(request.url);
 
-        if (!client) {
-            client = new MongoClient(env.MONGO_URI, {
-                maxPoolSize: 1,
-                minPoolSize: 0,
-                serverSelectionTimeoutMS: 5000,
-            });
-        }
-
         const corsHeaders = {
             'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || '*',
             'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
             'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         };
 
-        if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
-        if (url.pathname === "/health") return Response.json({ status: "ok" }, { headers: corsHeaders });
-        if (url.pathname === "/webhook/cakto" && request.method === "POST") return handleWebhook(request, env, corsHeaders);
-        if (url.pathname === "/cakto/login" && request.method === "POST") return handleCaktoLogin(request, env, corsHeaders);
-        if (url.pathname === "/cakto/verify" && request.method === "POST") return handleCaktoVerify(request, env, corsHeaders);
-        if (url.pathname === "/cakto/count" && request.method === "GET") return handleCaktoCount(env, corsHeaders);
-        if (url.pathname === "/admin/login" && request.method === "POST") return handleAdminLogin(request, env, corsHeaders);
-        if (url.pathname === "/verify-token" && request.method === "POST") return handleVerifyToken(request, env, corsHeaders);
+        try {
+            if (!client) {
+                console.log('Conectando ao MongoDB...');
+                client = new MongoClient(env.MONGO_URI, {
+                    maxPoolSize: 1,
+                    minPoolSize: 0,
+                    serverSelectionTimeoutMS: 5000,
+                });
+                await client.connect();
+                console.log('MongoDB conectado!');
+            }
 
-        if (url.pathname === "/admin/users" && request.method === "GET") {
-            const auth = await requireAdmin(request, env);
-            if (!auth.authorized) return Response.json({ error: "Não autorizado" }, { status: 401, headers: corsHeaders });
-            const emails = await getRemoteData(env);
-            return Response.json({ users: emails }, { headers: corsHeaders });
+            if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
+            if (url.pathname === "/health") return Response.json({ status: "ok" }, { headers: corsHeaders });
+            if (url.pathname === "/webhook/cakto" && request.method === "POST") return handleWebhook(request, env, corsHeaders);
+            if (url.pathname === "/cakto/login" && request.method === "POST") return handleCaktoLogin(request, env, corsHeaders);
+            if (url.pathname === "/cakto/verify" && request.method === "POST") return handleCaktoVerify(request, env, corsHeaders);
+            if (url.pathname === "/cakto/count" && request.method === "GET") return handleCaktoCount(env, corsHeaders);
+            if (url.pathname === "/admin/login" && request.method === "POST") return handleAdminLogin(request, env, corsHeaders);
+            if (url.pathname === "/verify-token" && request.method === "POST") return handleVerifyToken(request, env, corsHeaders);
+
+            if (url.pathname === "/admin/users" && request.method === "GET") {
+                const auth = await requireAdmin(request, env);
+                if (!auth.authorized) return Response.json({ error: "Não autorizado" }, { status: 401, headers: corsHeaders });
+                const emails = await getRemoteData(env);
+                return Response.json({ users: emails }, { headers: corsHeaders });
+            }
+
+            return new Response("Not found", { status: 404, headers: corsHeaders });
+        } catch (error) {
+            console.error('ERRO CRÍTICO:', error);
+            return Response.json({ 
+                error: "Erro crítico", 
+                message: error.message,
+                stack: error.stack 
+            }, { status: 500, headers: corsHeaders });
         }
-
-        return new Response("Not found", { status: 404, headers: corsHeaders });
     }
 };
-
-// ============================================================================
-// STORAGE - MONGODB
-// ============================================================================
 
 async function requireAdmin(request, env) {
     const authHeader = request.headers.get('Authorization');
@@ -64,10 +72,13 @@ function getCollection(env) {
 
 async function getRemoteData(env) {
     try {
+        console.log('Buscando dados no MongoDB...');
         const collection = getCollection(env);
         const users = await collection.find({}).toArray();
+        console.log('Dados encontrados:', users.length);
         return users.map(u => u.email);
-    } catch {
+    } catch (error) {
+        console.error('Erro ao buscar dados:', error);
         return [];
     }
 }
@@ -75,12 +86,18 @@ async function getRemoteData(env) {
 async function addEmail(email, env) {
     if (!email) return false;
     try {
+        console.log('Adicionando email:', email);
         const collection = getCollection(env);
         const existing = await collection.findOne({ email });
-        if (existing) return true;
-        await collection.insertOne({ email, createdAt: new Date() });
+        if (existing) {
+            console.log('Email já existe');
+            return true;
+        }
+        const result = await collection.insertOne({ email, createdAt: new Date() });
+        console.log('Email inserido:', result.insertedId);
         return true;
-    } catch {
+    } catch (error) {
+        console.error('Erro ao adicionar email:', error);
         return false;
     }
 }
@@ -88,10 +105,13 @@ async function addEmail(email, env) {
 async function removeEmail(email, env) {
     if (!email) return false;
     try {
+        console.log('Removendo email:', email);
         const collection = getCollection(env);
-        await collection.deleteOne({ email });
+        const result = await collection.deleteOne({ email });
+        console.log('Email removido:', result.deletedCount);
         return true;
-    } catch {
+    } catch (error) {
+        console.error('Erro ao remover email:', error);
         return false;
     }
 }
@@ -102,31 +122,34 @@ function getAdminUsers(env) {
     } catch { return []; }
 }
 
-// ============================================================================
-// WEBHOOK
-// ============================================================================
-
 async function handleWebhook(request, env, corsHeaders) {
     try {
+        console.log('Webhook recebido');
         const body = await request.json();
+        console.log('Webhook body:', JSON.stringify(body));
+        
         const event = body?.event;
         const email = body?.data?.customer?.email;
+
+        console.log('Event:', event, 'Email:', email);
 
         const addEvents = ["purchase_approved", "subscription_created", "subscription_renewed"];
         const removeEvents = ["subscription_canceled", "subscription_renewal_refused", "refund", "chargeback"];
 
-        if (addEvents.includes(event)) await addEmail(email, env);
-        else if (removeEvents.includes(event)) await removeEmail(email, env);
+        if (addEvents.includes(event)) {
+            const success = await addEmail(email, env);
+            console.log('Adicionar email success:', success);
+        } else if (removeEvents.includes(event)) {
+            const success = await removeEmail(email, env);
+            console.log('Remover email success:', success);
+        }
 
         return Response.json({ success: true }, { headers: corsHeaders });
     } catch (error) {
-        return Response.json({ error: error.message }, { status: 500, headers: corsHeaders });
+        console.error('Erro no webhook:', error);
+        return Response.json({ error: error.message, stack: error.stack }, { status: 500, headers: corsHeaders });
     }
 }
-
-// ============================================================================
-// LOGIN CAKTO
-// ============================================================================
 
 async function handleCaktoLogin(request, env, corsHeaders) {
     try {
@@ -151,14 +174,11 @@ async function handleCaktoLogin(request, env, corsHeaders) {
         const token = await generateSessionToken(email, 'cakto', env);
         return Response.json({ success: true, token, type: 'cakto', expiresIn: 86400 }, { headers: corsHeaders });
 
-    } catch {
-        return Response.json({ error: "Erro interno" }, { status: 500, headers: corsHeaders });
+    } catch (error) {
+        console.error('Erro no login:', error);
+        return Response.json({ error: "Erro interno", message: error.message }, { status: 500, headers: corsHeaders });
     }
 }
-
-// ============================================================================
-// VERIFY CAKTO
-// ============================================================================
 
 async function handleCaktoVerify(request, env, corsHeaders) {
     try {
@@ -175,28 +195,24 @@ async function handleCaktoVerify(request, env, corsHeaders) {
 
         return Response.json({ authorized: isBuyer }, { headers: corsHeaders });
 
-    } catch {
-        return Response.json({ error: "Erro interno" }, { status: 500, headers: corsHeaders });
+    } catch (error) {
+        console.error('Erro no verify:', error);
+        return Response.json({ error: "Erro interno", message: error.message }, { status: 500, headers: corsHeaders });
     }
 }
-
-// ============================================================================
-// COUNT CAKTO
-// ============================================================================
 
 async function handleCaktoCount(env, corsHeaders) {
     try {
+        console.log('Count requisitado');
         const collection = getCollection(env);
         const count = await collection.countDocuments();
+        console.log('Count:', count);
         return Response.json({ count }, { headers: corsHeaders });
-    } catch {
-        return Response.json({ error: "Erro interno" }, { status: 500, headers: corsHeaders });
+    } catch (error) {
+        console.error('Erro no count:', error);
+        return Response.json({ error: "Erro interno", message: error.message, stack: error.stack }, { status: 500, headers: corsHeaders });
     }
 }
-
-// ============================================================================
-// LOGIN ADMIN
-// ============================================================================
 
 async function handleAdminLogin(request, env, corsHeaders) {
     try {
@@ -222,14 +238,11 @@ async function handleAdminLogin(request, env, corsHeaders) {
         const token = await generateSessionToken(username, 'admin', env);
         return Response.json({ success: true, token, type: 'admin', expiresIn: 86400 }, { headers: corsHeaders });
 
-    } catch {
-        return Response.json({ error: "Erro interno" }, { status: 500, headers: corsHeaders });
+    } catch (error) {
+        console.error('Erro no admin login:', error);
+        return Response.json({ error: "Erro interno", message: error.message }, { status: 500, headers: corsHeaders });
     }
 }
-
-// ============================================================================
-// VERIFY TOKEN
-// ============================================================================
 
 async function handleVerifyToken(request, env, corsHeaders) {
     try {
@@ -243,14 +256,11 @@ async function handleVerifyToken(request, env, corsHeaders) {
 
         return Response.json({ valid: true, user: payload.user, type: payload.type, expiresAt: payload.exp }, { headers: corsHeaders });
 
-    } catch {
-        return Response.json({ error: "Erro interno" }, { status: 500, headers: corsHeaders });
+    } catch (error) {
+        console.error('Erro no verify token:', error);
+        return Response.json({ error: "Erro interno", message: error.message }, { status: 500, headers: corsHeaders });
     }
 }
-
-// ============================================================================
-// HELPERS
-// ============================================================================
 
 async function sha256(text) {
     const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
