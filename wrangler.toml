@@ -4,7 +4,6 @@ compatibility_date = "2025-03-20"
 
 [vars]
 ALLOWED_ORIGIN = "*"
-MONGO_DATABASE = "cakto"
 
 [[d1_databases]]
 binding = "DB"
@@ -14,6 +13,3 @@ database_id = "be049470-5b28-4847-aaae-304a697dc396"
 [[kv_namespaces]]
 binding = "USERS_KV"
 id = "c9d8969fcd9648259ce70a2590c05679"
-
-[vars]
-ALLOWED_ORIGIN = "*"
