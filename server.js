@@ -3,6 +3,13 @@ import { MongoClient } from 'mongodb';
 const rateLimitMap = new Map();
 let client = null;
 
+async function getMongoClient(env) {
+    if (!client) {
+        client = new MongoClient(env.MONGO_URI);
+    }
+    return client;
+}
+
 export default {
     async fetch(request, env) {
         const url = new URL(request.url);
@@ -14,17 +21,6 @@ export default {
         };
 
         try {
-            if (!client) {
-                console.log('Conectando ao MongoDB...');
-                client = new MongoClient(env.MONGO_URI, {
-                    maxPoolSize: 1,
-                    minPoolSize: 0,
-                    serverSelectionTimeoutMS: 5000,
-                });
-                await client.connect();
-                console.log('MongoDB conectado!');
-            }
-
             if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
             if (url.pathname === "/health") return Response.json({ status: "ok" }, { headers: corsHeaders });
             if (url.pathname === "/webhook/cakto" && request.method === "POST") return handleWebhook(request, env, corsHeaders);
@@ -65,15 +61,16 @@ async function requireAdmin(request, env) {
         : { authorized: false };
 }
 
-function getCollection(env) {
-    const db = client.db(env.MONGO_DATABASE || 'cakto');
+async function getCollection(env) {
+    const mongoClient = await getMongoClient(env);
+    const db = mongoClient.db(env.MONGO_DATABASE || 'cakto');
     return db.collection('users');
 }
 
 async function getRemoteData(env) {
     try {
         console.log('Buscando dados no MongoDB...');
-        const collection = getCollection(env);
+        const collection = await getCollection(env);
         const users = await collection.find({}).toArray();
         console.log('Dados encontrados:', users.length);
         return users.map(u => u.email);
@@ -87,7 +84,7 @@ async function addEmail(email, env) {
     if (!email) return false;
     try {
         console.log('Adicionando email:', email);
-        const collection = getCollection(env);
+        const collection = await getCollection(env);
         const existing = await collection.findOne({ email });
         if (existing) {
             console.log('Email já existe');
@@ -106,7 +103,7 @@ async function removeEmail(email, env) {
     if (!email) return false;
     try {
         console.log('Removendo email:', email);
-        const collection = getCollection(env);
+        const collection = await getCollection(env);
         const result = await collection.deleteOne({ email });
         console.log('Email removido:', result.deletedCount);
         return true;
@@ -165,7 +162,7 @@ async function handleCaktoLogin(request, env, corsHeaders) {
             return Response.json({ error: "Muitas tentativas. Aguarde um momento." }, { status: 429, headers: corsHeaders });
         }
 
-        const collection = getCollection(env);
+        const collection = await getCollection(env);
         const userDoc = await collection.findOne({ email });
         const isBuyer = !!userDoc;
 
@@ -189,7 +186,7 @@ async function handleCaktoVerify(request, env, corsHeaders) {
             return Response.json({ error: "Email inválido" }, { status: 400, headers: corsHeaders });
         }
 
-        const collection = getCollection(env);
+        const collection = await getCollection(env);
         const userDoc = await collection.findOne({ email });
         const isBuyer = !!userDoc;
 
@@ -204,7 +201,7 @@ async function handleCaktoVerify(request, env, corsHeaders) {
 async function handleCaktoCount(env, corsHeaders) {
     try {
         console.log('Count requisitado');
-        const collection = getCollection(env);
+        const collection = await getCollection(env);
         const count = await collection.countDocuments();
         console.log('Count:', count);
         return Response.json({ count }, { headers: corsHeaders });
