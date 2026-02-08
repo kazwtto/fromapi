@@ -1,3 +1,8 @@
-name = "api"
+name = "sween-api"
 main = "server.js"
-compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat_v2"]
+compatibility_date = "2025-03-20"
+
+[vars]
+ALLOWED_ORIGIN = "*"
+MONGO_DATABASE = "cakto"

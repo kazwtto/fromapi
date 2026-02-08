@@ -1,13 +1,18 @@
-let apiUrlGet, apiUrlAdm;
-const rateLimitMap = new Map();
+import { MongoClient } from 'mongodb';
 
+const rateLimitMap = new Map();
+let client = null;
 
 export default {
     async fetch(request, env) {
         const url = new URL(request.url);
-        if (!apiUrlAdm) {
-            apiUrlGet = env.USERS_ENDPOINT;
-            apiUrlAdm = env.ADMIN_ENDPOINT;
+
+        if (!client) {
+            client = new MongoClient(env.MONGO_URI, {
+                maxPoolSize: 1,
+                minPoolSize: 0,
+                serverSelectionTimeoutMS: 5000,
+            });
         }
 
         const corsHeaders = {
@@ -28,7 +33,7 @@ export default {
         if (url.pathname === "/admin/users" && request.method === "GET") {
             const auth = await requireAdmin(request, env);
             if (!auth.authorized) return Response.json({ error: "Não autorizado" }, { status: 401, headers: corsHeaders });
-            const emails = await getRemoteData();
+            const emails = await getRemoteData(env);
             return Response.json({ users: emails }, { headers: corsHeaders });
         }
 
@@ -37,7 +42,7 @@ export default {
 };
 
 // ============================================================================
-// STORAGE
+// STORAGE - MONGODB
 // ============================================================================
 
 async function requireAdmin(request, env) {
@@ -52,39 +57,43 @@ async function requireAdmin(request, env) {
         : { authorized: false };
 }
 
-async function getRemoteData() {
-    try {
-        const response = await fetch(apiUrlGet);
-        return response.ok ? await response.json() : [];
-    } catch { return []; }
+function getCollection(env) {
+    const db = client.db(env.MONGO_DATABASE || 'cakto');
+    return db.collection('users');
 }
 
-async function updateRemoteData(data, env) {
+async function getRemoteData(env) {
     try {
-        const res = await fetch(`${apiUrlGet}?apiKey=${env.JSONKEY}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(data)
-        });
-        return res.ok;
-    } catch { return false; }
+        const collection = getCollection(env);
+        const users = await collection.find({}).toArray();
+        return users.map(u => u.email);
+    } catch {
+        return [];
+    }
 }
 
 async function addEmail(email, env) {
     if (!email) return false;
-    const data = await getRemoteData();
-    const emails = Array.isArray(data) ? data : [];
-    if (emails.includes(email)) return true;
-    emails.push(email);
-    return await updateRemoteData(emails, env);
+    try {
+        const collection = getCollection(env);
+        const existing = await collection.findOne({ email });
+        if (existing) return true;
+        await collection.insertOne({ email, createdAt: new Date() });
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 async function removeEmail(email, env) {
     if (!email) return false;
-    const data = await getRemoteData();
-    const emails = Array.isArray(data) ? data : [];
-    const filtered = emails.filter(e => e !== email);
-    return filtered.length !== emails.length ? await updateRemoteData(filtered, env) : true;
+    try {
+        const collection = getCollection(env);
+        await collection.deleteOne({ email });
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 function getAdminUsers(env) {
@@ -133,8 +142,9 @@ async function handleCaktoLogin(request, env, corsHeaders) {
             return Response.json({ error: "Muitas tentativas. Aguarde um momento." }, { status: 429, headers: corsHeaders });
         }
 
-        const emails = await getRemoteData();
-        const isBuyer = Array.isArray(emails) && emails.includes(email);
+        const collection = getCollection(env);
+        const userDoc = await collection.findOne({ email });
+        const isBuyer = !!userDoc;
 
         if (!isBuyer) return Response.json({ error: "Email não autorizado" }, { status: 403, headers: corsHeaders });
 
@@ -159,8 +169,9 @@ async function handleCaktoVerify(request, env, corsHeaders) {
             return Response.json({ error: "Email inválido" }, { status: 400, headers: corsHeaders });
         }
 
-        const emails = await getRemoteData();
-        const isBuyer = Array.isArray(emails) && emails.includes(email);
+        const collection = getCollection(env);
+        const userDoc = await collection.findOne({ email });
+        const isBuyer = !!userDoc;
 
         return Response.json({ authorized: isBuyer }, { headers: corsHeaders });
 
@@ -175,8 +186,9 @@ async function handleCaktoVerify(request, env, corsHeaders) {
 
 async function handleCaktoCount(env, corsHeaders) {
     try {
-        const emails = await getRemoteData();
-        return Response.json({ count: Array.isArray(emails) ? emails.length : 0 }, { headers: corsHeaders });
+        const collection = getCollection(env);
+        const count = await collection.countDocuments();
+        return Response.json({ count }, { headers: corsHeaders });
     } catch {
         return Response.json({ error: "Erro interno" }, { status: 500, headers: corsHeaders });
     }
