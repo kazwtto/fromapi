@@ -31,11 +31,11 @@ export default {
                 return Response.json({ users: emails }, { headers: corsHeaders });
             }
 
-            if (url.pathname === "/cakto/buyers/all" && request.method === "POST") {
+            if (url.pathname === "/cakto/buyers/all" && request.method === "GET") {
                 return handleGetAllBuyers(request, env, corsHeaders);
             }
 
-            if (url.pathname === "/cakto/buyers/recent" && request.method === "POST") {
+            if (url.pathname === "/cakto/buyers/recent" && request.method === "GET") {
                 return handleGetRecentBuyer(request, env, corsHeaders);
             }
 
@@ -64,10 +64,12 @@ async function requireAdmin(request, env) {
 }
 
 async function requireApiKey(request, env) {
-    const apiKey = request.headers.get('X-API-Key');
+    // Tentar pegar da query string primeiro, depois do header
+    const url = new URL(request.url);
+    const apiKey = url.searchParams.get('api_key') || request.headers.get('X-API-Key');
     
     if (!apiKey) {
-        return { authorized: false, error: 'API key obrigatória' };
+        return { authorized: false, error: 'API key obrigatória (use ?api_key=... ou header X-API-Key)' };
     }
 
     // Verificar se a API key é válida
