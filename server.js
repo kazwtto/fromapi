@@ -27,7 +27,7 @@ export default {
             if (url.pathname === "/admin/users" && request.method === "GET") {
                 const auth = await requireAdmin(request, env);
                 if (!auth.authorized) return Response.json({ error: "Não autorizado" }, { status: 401, headers: corsHeaders });
-                const emails = await getRemoteData(env);
+                const emails = await getUsersFromCache(env);
                 return Response.json({ users: emails }, { headers: corsHeaders });
             }
 
@@ -117,16 +117,6 @@ async function getUsersCountFromCache(env) {
     }
 }
 
-// --- DATA OPERATIONS ---
-async function getRemoteData(env) {
-    try {
-        return await getUsersFromCache(env);
-    } catch (error) {
-        console.error('Erro ao buscar dados:', error);
-        return [];
-    }
-}
-
 async function addEmail(email, env) {
     if (!email) return false;
     try {
@@ -193,7 +183,16 @@ async function removeEmail(email, env) {
     }
 }
 
-// --- ROUTE HANDLERS ---
+function getAdminUsers(env) {
+    try {
+        return typeof env.ADMIN_USERS === 'string' ? JSON.parse(env.ADMIN_USERS) : env.ADMIN_USERS;
+    } catch { return []; }
+}
+
+// ============================================================================
+// WEBHOOK
+// ============================================================================
+
 async function handleWebhook(request, env, corsHeaders) {
     try {
         const body = await request.json();
@@ -203,18 +202,18 @@ async function handleWebhook(request, env, corsHeaders) {
         const addEvents = ["purchase_approved", "subscription_created", "subscription_renewed"];
         const removeEvents = ["subscription_canceled", "subscription_renewal_refused", "refund", "chargeback"];
 
-        if (addEvents.includes(event)) {
-            await addEmail(email, env);
-        } else if (removeEvents.includes(event)) {
-            await removeEmail(email, env);
-        }
+        if (addEvents.includes(event)) await addEmail(email, env);
+        else if (removeEvents.includes(event)) await removeEmail(email, env);
 
         return Response.json({ success: true }, { headers: corsHeaders });
     } catch (error) {
-        console.error('Erro no webhook:', error);
-        return Response.json({ error: error.message, stack: error.stack }, { status: 500, headers: corsHeaders });
+        return Response.json({ error: error.message }, { status: 500, headers: corsHeaders });
     }
 }
+
+// ============================================================================
+// LOGIN CAKTO
+// ============================================================================
 
 async function handleCaktoLogin(request, env, corsHeaders) {
     try {
@@ -230,19 +229,22 @@ async function handleCaktoLogin(request, env, corsHeaders) {
             return Response.json({ error: "Muitas tentativas. Aguarde um momento." }, { status: 429, headers: corsHeaders });
         }
 
-        const cached = await getUsersFromCache(env);
-        const isBuyer = cached.includes(email);
+        const emails = await getUsersFromCache(env);
+        const isBuyer = Array.isArray(emails) && emails.includes(email);
 
         if (!isBuyer) return Response.json({ error: "Email não autorizado" }, { status: 403, headers: corsHeaders });
 
         const token = await generateSessionToken(email, 'cakto', env);
         return Response.json({ success: true, token, type: 'cakto', expiresIn: 86400 }, { headers: corsHeaders });
 
-    } catch (error) {
-        console.error('Erro no login:', error);
-        return Response.json({ error: "Erro interno", message: error.message }, { status: 500, headers: corsHeaders });
+    } catch {
+        return Response.json({ error: "Erro interno" }, { status: 500, headers: corsHeaders });
     }
 }
+
+// ============================================================================
+// VERIFY CAKTO
+// ============================================================================
 
 async function handleCaktoVerify(request, env, corsHeaders) {
     try {
@@ -253,26 +255,32 @@ async function handleCaktoVerify(request, env, corsHeaders) {
             return Response.json({ error: "Email inválido" }, { status: 400, headers: corsHeaders });
         }
 
-        const cached = await getUsersFromCache(env);
-        const isBuyer = cached.includes(email);
+        const emails = await getUsersFromCache(env);
+        const isBuyer = Array.isArray(emails) && emails.includes(email);
 
         return Response.json({ authorized: isBuyer }, { headers: corsHeaders });
 
-    } catch (error) {
-        console.error('Erro no verify:', error);
-        return Response.json({ error: "Erro interno", message: error.message }, { status: 500, headers: corsHeaders });
+    } catch {
+        return Response.json({ error: "Erro interno" }, { status: 500, headers: corsHeaders });
     }
 }
+
+// ============================================================================
+// COUNT CAKTO
+// ============================================================================
 
 async function handleCaktoCount(env, corsHeaders) {
     try {
         const count = await getUsersCountFromCache(env);
         return Response.json({ count }, { headers: corsHeaders });
-    } catch (error) {
-        console.error('Erro no count:', error);
-        return Response.json({ error: "Erro interno", message: error.message, stack: error.stack }, { status: 500, headers: corsHeaders });
+    } catch {
+        return Response.json({ error: "Erro interno" }, { status: 500, headers: corsHeaders });
     }
 }
+
+// ============================================================================
+// LOGIN ADMIN
+// ============================================================================
 
 async function handleAdminLogin(request, env, corsHeaders) {
     try {
@@ -292,17 +300,20 @@ async function handleAdminLogin(request, env, corsHeaders) {
         const adminUsers = getAdminUsers(env);
         const passwordHash = await sha256(password);
         const validUser = adminUsers.find(u => u.username === username && u.passwordHash === passwordHash);
-
+        
         if (!validUser) return Response.json({ error: "Credenciais inválidas" }, { status: 401, headers: corsHeaders });
 
         const token = await generateSessionToken(username, 'admin', env);
         return Response.json({ success: true, token, type: 'admin', expiresIn: 86400 }, { headers: corsHeaders });
 
-    } catch (error) {
-        console.error('Erro no admin login:', error);
-        return Response.json({ error: "Erro interno", message: error.message }, { status: 500, headers: corsHeaders });
+    } catch {
+        return Response.json({ error: "Erro interno" }, { status: 500, headers: corsHeaders });
     }
 }
+
+// ============================================================================
+// VERIFY TOKEN
+// ============================================================================
 
 async function handleVerifyToken(request, env, corsHeaders) {
     try {
@@ -316,13 +327,15 @@ async function handleVerifyToken(request, env, corsHeaders) {
 
         return Response.json({ valid: true, user: payload.user, type: payload.type, expiresAt: payload.exp }, { headers: corsHeaders });
 
-    } catch (error) {
-        console.error('Erro no verify token:', error);
-        return Response.json({ error: "Erro interno", message: error.message }, { status: 500, headers: corsHeaders });
+    } catch {
+        return Response.json({ error: "Erro interno" }, { status: 500, headers: corsHeaders });
     }
 }
 
-// --- UTIL ---
+// ============================================================================
+// HELPERS
+// ============================================================================
+
 async function sha256(text) {
     const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
     return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, "0")).join("");
@@ -335,14 +348,14 @@ function isValidEmail(email) {
 function checkRateLimit(identifier) {
     const now = Date.now();
     const limit = rateLimitMap.get(identifier);
-
+    
     if (!limit || now > limit.resetAt) {
         rateLimitMap.set(identifier, { count: 1, resetAt: now + 60000 });
         return true;
     }
-
+    
     if (limit.count >= 10) return false;
-
+    
     limit.count++;
     return true;
 }
@@ -359,16 +372,10 @@ async function verifySessionToken(token, env) {
         const [payloadB64, signature] = token.split(".");
         const payloadStr = atob(payloadB64);
         const payload = JSON.parse(payloadStr);
-
+        
         if (payload.exp < Date.now()) return null;
-
+        
         const expectedSig = await sha256(payloadStr + env.SECRET_KEY);
         return signature === expectedSig ? payload : null;
     } catch { return null; }
-}
-
-function getAdminUsers(env) {
-    try {
-        return typeof env.ADMIN_USERS === 'string' ? JSON.parse(env.ADMIN_USERS) : env.ADMIN_USERS;
-    } catch { return []; }
 }
