@@ -397,13 +397,15 @@ async function handleVerifyToken(request, env, corsHeaders) {
 
 async function handleGetAllBuyers(request, env, corsHeaders) {
     try {
-        // Verificar API key
+        // Verificar API key 
+        /*
         const auth = await requireApiKey(request, env);
         if (!auth.authorized) {
             return Response.json({ 
                 error: auth.error || "Não autorizado" 
             }, { status: 401, headers: corsHeaders });
         }
+        */
 
         const res = await env.DB.prepare("SELECT email, createdAt FROM users ORDER BY createdAt DESC").all();
         const buyers = (res.results || []).map(row => ({
@@ -429,13 +431,15 @@ async function handleGetAllBuyers(request, env, corsHeaders) {
 async function handleGetRecentBuyer(request, env, corsHeaders) {
     try {
         // Verificar API key
+        /*
         const auth = await requireApiKey(request, env);
         if (!auth.authorized) {
             return Response.json({ 
                 error: auth.error || "Não autorizado" 
             }, { status: 401, headers: corsHeaders });
         }
-
+        */
+        
         const res = await env.DB.prepare("SELECT email, createdAt FROM users ORDER BY createdAt DESC LIMIT 1").first();
         
         if (!res) {
