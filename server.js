@@ -161,19 +161,27 @@ async function removeEmail(email, env) {
     try {
         email = email.toLowerCase().trim();
 
-        // get cache first
-        const cached = await getUsersFromCache(env);
+        console.log('Removendo email:', email);
+
+        // invalidate in-memory cache first
+        inMemoryCache.usersList = null;
+        inMemoryCache.usersListExpiresAt = 0;
 
         // perform delete
-        await env.DB.prepare("DELETE FROM users WHERE email = ?").bind(email).run();
+        const deleteResult = await env.DB.prepare("DELETE FROM users WHERE email = ?").bind(email).run();
+        console.log('Delete result:', deleteResult);
 
-        // update caches
+        // force refresh cache from D1
+        const freshList = await env.DB.prepare("SELECT email FROM users").all();
+        const emails = (freshList.results || []).map(r => r.email);
+
+        // update all caches
         try {
-            const updated = cached.filter(e => e !== email);
-            inMemoryCache.usersList = updated;
+            inMemoryCache.usersList = emails;
             inMemoryCache.usersListExpiresAt = Date.now() + 60 * 1000;
-            await env.USERS_KV.put('users_list', JSON.stringify(updated), { expirationTtl: 60 * 60 });
-            await env.USERS_KV.put('users_count', String(updated.length), { expirationTtl: 60 * 60 });
+            await env.USERS_KV.put('users_list', JSON.stringify(emails), { expirationTtl: 60 * 60 });
+            await env.USERS_KV.put('users_count', String(emails.length), { expirationTtl: 60 * 60 });
+            console.log('Cache atualizado após remoção. Total:', emails.length);
         } catch (e) {
             console.warn('KV update failed after delete', e);
         }
@@ -201,14 +209,30 @@ async function handleWebhook(request, env, corsHeaders) {
         const event = body?.event;
         const email = body?.data?.customer?.email;
 
+        console.log('Webhook recebido:', { event, email });
+
+        if (!email || !isValidEmail(email)) {
+            console.error('Email inválido no webhook:', email);
+            return Response.json({ error: "Email inválido" }, { status: 400, headers: corsHeaders });
+        }
+
         const addEvents = ["purchase_approved", "subscription_created", "subscription_renewed"];
         const removeEvents = ["subscription_canceled", "subscription_renewal_refused", "refund", "chargeback"];
 
-        if (addEvents.includes(event)) await addEmail(email, env);
-        else if (removeEvents.includes(event)) await removeEmail(email, env);
+        if (addEvents.includes(event)) {
+            const result = await addEmail(email, env);
+            console.log('Email adicionado:', { email, result });
+            return Response.json({ success: true, action: 'added', email }, { headers: corsHeaders });
+        } else if (removeEvents.includes(event)) {
+            const result = await removeEmail(email, env);
+            console.log('Email removido:', { email, result });
+            return Response.json({ success: true, action: 'removed', email }, { headers: corsHeaders });
+        }
 
-        return Response.json({ success: true }, { headers: corsHeaders });
+        console.log('Evento ignorado:', event);
+        return Response.json({ success: true, action: 'ignored', event }, { headers: corsHeaders });
     } catch (error) {
+        console.error('Erro no webhook:', error);
         return Response.json({ error: error.message }, { status: 500, headers: corsHeaders });
     }
 }
