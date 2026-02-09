@@ -31,12 +31,12 @@ export default {
                 return Response.json({ users: emails }, { headers: corsHeaders });
             }
 
-            if (url.pathname === "/cakto/buyers/all" && request.method === "GET") {
-                return handleGetAllBuyers(env, corsHeaders);
+            if (url.pathname === "/cakto/buyers/all" && request.method === "POST") {
+                return handleGetAllBuyers(request, env, corsHeaders);
             }
 
-            if (url.pathname === "/cakto/buyers/recent" && request.method === "GET") {
-                return handleGetRecentBuyer(env, corsHeaders);
+            if (url.pathname === "/cakto/buyers/recent" && request.method === "POST") {
+                return handleGetRecentBuyer(request, env, corsHeaders);
             }
 
             return new Response("Not found", { status: 404, headers: corsHeaders });
@@ -61,6 +61,31 @@ async function requireAdmin(request, env) {
     return payload && payload.type === 'admin'
         ? { authorized: true, user: payload.user }
         : { authorized: false };
+}
+
+async function requireApiKey(request, env) {
+    const apiKey = request.headers.get('X-API-Key');
+    
+    if (!apiKey) {
+        return { authorized: false, error: 'API key obrigatória' };
+    }
+
+    // Verificar se a API key é válida
+    const validApiKey = env.API_KEY;
+    
+    if (!validApiKey) {
+        console.error('API_KEY não configurada no ambiente');
+        return { authorized: false, error: 'Configuração inválida' };
+    }
+
+    const apiKeyHash = await sha256(apiKey);
+    const validKeyHash = await sha256(validApiKey);
+    
+    if (apiKeyHash !== validKeyHash) {
+        return { authorized: false, error: 'API key inválida' };
+    }
+
+    return { authorized: true };
 }
 
 // --- CACHE HELPERS ---
@@ -370,8 +395,16 @@ async function handleVerifyToken(request, env, corsHeaders) {
 // GET ALL BUYERS
 // ============================================================================
 
-async function handleGetAllBuyers(env, corsHeaders) {
+async function handleGetAllBuyers(request, env, corsHeaders) {
     try {
+        // Verificar API key
+        const auth = await requireApiKey(request, env);
+        if (!auth.authorized) {
+            return Response.json({ 
+                error: auth.error || "Não autorizado" 
+            }, { status: 401, headers: corsHeaders });
+        }
+
         const res = await env.DB.prepare("SELECT email, createdAt FROM users ORDER BY createdAt DESC").all();
         const buyers = (res.results || []).map(row => ({
             email: row.email,
@@ -393,8 +426,16 @@ async function handleGetAllBuyers(env, corsHeaders) {
 // GET RECENT BUYER
 // ============================================================================
 
-async function handleGetRecentBuyer(env, corsHeaders) {
+async function handleGetRecentBuyer(request, env, corsHeaders) {
     try {
+        // Verificar API key
+        const auth = await requireApiKey(request, env);
+        if (!auth.authorized) {
+            return Response.json({ 
+                error: auth.error || "Não autorizado" 
+            }, { status: 401, headers: corsHeaders });
+        }
+
         const res = await env.DB.prepare("SELECT email, createdAt FROM users ORDER BY createdAt DESC LIMIT 1").first();
         
         if (!res) {
@@ -465,47 +506,4 @@ async function verifySessionToken(token, env) {
     } catch { return null; }
 }
 
-// ============================================================================
-// BUYERS INFO
-// ============================================================================
-
-async function handleGetAllBuyers(env, corsHeaders) {
-    try {
-        const res = await env.DB.prepare("SELECT email, createdAt FROM users ORDER BY createdAt DESC").all();
-        const buyers = res.results || [];
-        
-        return Response.json({ 
-            success: true, 
-            count: buyers.length,
-            buyers: buyers 
-        }, { headers: corsHeaders });
-    } catch (error) {
-        console.error('Erro ao buscar compradores:', error);
-        return Response.json({ error: "Erro interno" }, { status: 500, headers: corsHeaders });
-    }
-}
-
-async function handleGetRecentBuyer(env, corsHeaders) {
-    try {
-        const res = await env.DB.prepare("SELECT email, createdAt FROM users ORDER BY createdAt DESC LIMIT 1").first();
-        
-        if (!res) {
-            return Response.json({ 
-                success: true, 
-                buyer: null 
-            }, { headers: corsHeaders });
-        }
-        
-        return Response.json({ 
-            success: true, 
-            buyer: {
-                email: res.email,
-                createdAt: res.createdAt
-            }
-        }, { headers: corsHeaders });
-    } catch (error) {
-        console.error('Erro ao buscar comprador mais recente:', error);
-        return Response.json({ error: "Erro interno" }, { status: 500, headers: corsHeaders });
-    }
-}
 
