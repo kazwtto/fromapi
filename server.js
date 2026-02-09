@@ -161,12 +161,14 @@ async function removeEmail(email, env) {
     try {
         email = email.toLowerCase().trim();
 
+        // get cache first
+        const cached = await getUsersFromCache(env);
+
         // perform delete
         await env.DB.prepare("DELETE FROM users WHERE email = ?").bind(email).run();
 
         // update caches
         try {
-            const cached = await getUsersFromCache(env);
             const updated = cached.filter(e => e !== email);
             inMemoryCache.usersList = updated;
             inMemoryCache.usersListExpiresAt = Date.now() + 60 * 1000;
