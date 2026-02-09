@@ -1,4 +1,4 @@
-name = "sween-api"
+name = "via-api"
 main = "server.js"
 compatibility_date = "2025-03-20"
 
